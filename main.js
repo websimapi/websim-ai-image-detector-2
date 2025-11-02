@@ -40,6 +40,9 @@ const loadModel = async () => {
             executionProviders: ['wasm'],
         });
         
+        console.log('Model loaded. Input names:', session.inputNames);
+        console.log('Model loaded. Output names:', session.outputNames);
+        
         progressBar.style.width = '100%';
         statusMessage.textContent = 'Model loaded successfully!';
         
@@ -213,7 +216,13 @@ detectButton.addEventListener('click', async () => {
 
         console.log("Model inference complete. Results:", results);
         
-        const logits = results.logits.data;
+        // FIX: The output name from this model is 'output_0', not 'logits'.
+        const outputTensor = results[session.outputNames[0]]; 
+        if (!outputTensor) {
+            console.error("Could not find the expected output tensor in the results object.", results);
+            throw new Error("Model output is not in the expected format.");
+        }
+        const logits = outputTensor.data;
         console.log("Extracted logits:", logits);
         
         // Softmax to get probabilities
