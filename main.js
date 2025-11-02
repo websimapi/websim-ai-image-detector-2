@@ -18,7 +18,7 @@ let imageUrl = null;
 
 class AiImageDetectorPipeline {
     static task = 'image-classification';
-    static model = 'prithivMLmods/deepfake-detector-model-v1';
+    static model = 'umm-maybe/AI-image-detector';
     static instance = null;
 
     static async getInstance(progress_callback = null) {
