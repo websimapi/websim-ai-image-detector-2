@@ -18,7 +18,7 @@ let imageUrl = null;
 
 class AiImageDetectorPipeline {
     static task = 'image-classification';
-    static model = 'Organika/AI-image-detector';
+    static model = 'Xenova/vit-base-patch16-224-in21k-fake-real';
     static instance = null;
 
     static async getInstance(progress_callback = null) {
