@@ -106,14 +106,17 @@ const preprocessImage = async (imageUrl) => {
         img.crossOrigin = 'anonymous';
         img.onload = () => {
             try {
+                console.log("Image loaded for preprocessing. Dimensions:", img.width, "x", img.height);
                 const canvas = document.createElement('canvas');
                 canvas.width = 384;
                 canvas.height = 384;
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, 384, 384);
+                console.log("Image drawn to 384x384 canvas.");
                 
                 const imageData = ctx.getImageData(0, 0, 384, 384);
                 const pixels = imageData.data;
+                console.log("Got image data from canvas. Pixel array length:", pixels.length);
                 
                 // Prepare tensor data [1, 3, 384, 384]
                 const float32Data = new Float32Array(3 * 384 * 384);
@@ -129,6 +132,7 @@ const preprocessImage = async (imageUrl) => {
                     float32Data[384 * 384 * 2 + i] = (pixels[i * 4 + 2] / 255 - mean[2]) / std[2]; // B
                 }
                 
+                console.log("Image normalization complete. Tensor data length:", float32Data.length);
                 resolve(float32Data);
             } catch (e) {
                 console.error("Error during image preprocessing:", e);
@@ -175,20 +179,31 @@ detectButton.addEventListener('click', async () => {
     detectButton.disabled = true;
     statusMessage.textContent = 'Step 1/2: Analyzing metadata...';
     resultsContainer.innerHTML = '';
+    console.log("Starting analysis...");
 
     try {
         // Step 1: Analyze metadata
+        console.log("Analyzing metadata for file:", imageFile.name);
         const metadata = await analyzeMetadata(imageFile);
+        console.log("Metadata analysis complete:", metadata);
         
         // Step 2: ML-based detection
         statusMessage.textContent = 'Step 2/2: Running AI detection model...';
+        console.log("Preprocessing image...");
         const preprocessed = await preprocessImage(imageUrl);
+        console.log("Image preprocessing complete. Preprocessed data length:", preprocessed.length);
         
+        console.log("Creating ONNX tensor...");
         const tensor = new window.ort.Tensor('float32', preprocessed, [1, 3, 384, 384]);
-        const feeds = { pixel_values: tensor };
+        console.log("Tensor created:", tensor);
         
+        const feeds = { pixel_values: tensor };
+        console.log("Running model inference with feeds:", feeds);
         const results = await session.run(feeds);
+        console.log("Model inference complete. Results:", results);
+        
         const logits = results.logits.data;
+        console.log("Extracted logits:", logits);
         
         // Softmax to get probabilities
         const exp = logits.map(x => Math.exp(x));
@@ -203,6 +218,9 @@ detectButton.addEventListener('click', async () => {
         statusMessage.textContent = 'Analysis complete! Upload another image to test.';
     } catch (error) {
         console.error('Error during analysis:', error);
+        if (error.stack) {
+            console.error("Stack trace:", error.stack);
+        }
         statusMessage.textContent = 'Error analyzing image. Please try another image.';
         const errorMessage = error instanceof Error ? error.message : String(error);
         resultsContainer.innerHTML = '<p style="color: #dc3545; text-align: center;">Analysis failed: ' + errorMessage + '</p>';
