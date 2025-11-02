@@ -105,32 +105,40 @@ const preprocessImage = async (imageUrl) => {
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
-            const canvas = document.createElement('canvas');
-            canvas.width = 384;
-            canvas.height = 384;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, 384, 384);
-            
-            const imageData = ctx.getImageData(0, 0, 384, 384);
-            const pixels = imageData.data;
-            
-            // Prepare tensor data [1, 3, 384, 384]
-            const float32Data = new Float32Array(3 * 384 * 384);
-            
-            // ImageNet normalization values
-            const mean = [0.485, 0.456, 0.406];
-            const std = [0.229, 0.224, 0.225];
-            
-            for (let i = 0; i < 384 * 384; i++) {
-                // RGB channels
-                float32Data[i] = (pixels[i * 4] / 255 - mean[0]) / std[0];     // R
-                float32Data[384 * 384 + i] = (pixels[i * 4 + 1] / 255 - mean[1]) / std[1]; // G
-                float32Data[384 * 384 * 2 + i] = (pixels[i * 4 + 2] / 255 - mean[2]) / std[2]; // B
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = 384;
+                canvas.height = 384;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, 384, 384);
+                
+                const imageData = ctx.getImageData(0, 0, 384, 384);
+                const pixels = imageData.data;
+                
+                // Prepare tensor data [1, 3, 384, 384]
+                const float32Data = new Float32Array(3 * 384 * 384);
+                
+                // ImageNet normalization values
+                const mean = [0.485, 0.456, 0.406];
+                const std = [0.229, 0.224, 0.225];
+                
+                for (let i = 0; i < 384 * 384; i++) {
+                    // RGB channels
+                    float32Data[i] = (pixels[i * 4] / 255 - mean[0]) / std[0];     // R
+                    float32Data[384 * 384 + i] = (pixels[i * 4 + 1] / 255 - mean[1]) / std[1]; // G
+                    float32Data[384 * 384 * 2 + i] = (pixels[i * 4 + 2] / 255 - mean[2]) / std[2]; // B
+                }
+                
+                resolve(float32Data);
+            } catch (e) {
+                console.error("Error during image preprocessing:", e);
+                reject(new Error("Failed to process image data."));
             }
-            
-            resolve(float32Data);
         };
-        img.onerror = reject;
+        img.onerror = (err) => {
+            console.error("Error loading image for preprocessing:", err);
+            reject(new Error("Could not load the image. It might be corrupt or in an unsupported format."));
+        };
         img.src = imageUrl;
     });
 };
@@ -196,7 +204,8 @@ detectButton.addEventListener('click', async () => {
     } catch (error) {
         console.error('Error during analysis:', error);
         statusMessage.textContent = 'Error analyzing image. Please try another image.';
-        resultsContainer.innerHTML = '<p style="color: #dc3545; text-align: center;">Analysis failed: ' + error.message + '</p>';
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        resultsContainer.innerHTML = '<p style="color: #dc3545; text-align: center;">Analysis failed: ' + errorMessage + '</p>';
     } finally {
         detectButton.disabled = false;
     }
