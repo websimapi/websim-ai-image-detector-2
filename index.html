@@ -3,55 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image Classifier</title>
+    <title>AI Image Detector Pro</title>
     <link rel="stylesheet" href="style.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div id="container">
         <header>
-            <h1>Image Classifier</h1>
-            <p>Upload an image to see what the AI thinks it is.</p>
-            <p class="model-info">Using <strong>Xenova/vit-base-patch16-224</strong></p>
+            <h1>🔍 AI Image Detector Pro</h1>
+            <p>Advanced detection using zero-shot classification with CLIP</p>
+            <p class="model-info">Using <strong>Xenova/clip-vit-base-patch32</strong></p>
         </header>
-
         <main>
             <div id="image-uploader">
                 <input type="file" id="image-upload-input" accept="image/*" style="display: none;">
                 <label for="image-upload-input" class="upload-label">
                     <img id="image-preview" src="#" alt="Image preview">
-                    <span id="upload-placeholder">Click to upload an image</span>
+                    <span id="upload-placeholder">📤 Click to upload an image for AI detection</span>
                 </label>
             </div>
-
-            <button id="detect-button" disabled>Detect</button>
-
+            <button id="detect-button" disabled>🔍 Analyze Image</button>
             <div id="status-container">
                 <p id="status-message">Please upload an image to begin.</p>
                 <div id="progress-bar-container" style="display: none;">
                     <div id="progress-bar"></div>
                 </div>
             </div>
-
             <div id="results-container"></div>
-            <div id="metadata-container"></div>
+            <div class="disclaimer">
+                <strong>⚠️ Disclaimer:</strong> This tool provides estimates based on visual patterns. AI detection is challenging and results should not be considered definitive. Modern AI generators can produce images that are difficult to distinguish from real photos.
+            </div>
         </main>
-
         <footer>
-            <p>Powered by <a href="https://huggingface.co/docs/transformers.js/index" target="_blank" rel="noopener noreferrer">Transformers.js</a> & ONNX Runtime</p>
+            <p>Powered by <a href="https://huggingface.co/docs/transformers.js/index" target="_blank" rel="noopener noreferrer">Transformers.js</a> & ONNX Runtime | Runs entirely in your browser</p>
         </footer>
     </div>
 
     <script type="importmap">
     {
       "imports": {
-        "@xenova/transformers": "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1",
-        "exifreader": "https://cdn.jsdelivr.net/npm/exifreader@4.21.0/dist/exif-reader.mjs"
+        "@xenova/transformers": "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1"
       }
     }
     </script>
+    
     <script type="module" src="main.js"></script>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
