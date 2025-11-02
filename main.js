@@ -234,7 +234,9 @@ detectButton.addEventListener('click', async () => {
             results = await session.run(feeds);
         } catch (inferenceError) {
             console.error("Error during session.run():", inferenceError);
-            if (inferenceError.message.includes('726881928')) { // Specific memory error code
+            // Safely convert the error to a string to check for memory issues, as it might not be an Error object.
+            const errorString = String(inferenceError.message || inferenceError);
+            if (errorString.includes('726881928') || errorString.includes('725786432')) { // Specific memory error codes
                  throw new Error("Out of memory during model inference. Please try a smaller image or a device with more RAM.");
             }
             throw new Error("Model inference failed. The model may be incompatible with your browser's environment.");
