@@ -1,4 +1,5 @@
 import { pipeline } from '@xenova/transformers';
+import ExifReader from 'exifreader';
 
 // DOM Elements
 const imageUploadInput = document.getElementById('image-upload-input');
@@ -7,12 +8,14 @@ const uploadPlaceholder = document.getElementById('upload-placeholder');
 const detectButton = document.getElementById('detect-button');
 const statusMessage = document.getElementById('status-message');
 const resultsContainer = document.getElementById('results-container');
+const metadataContainer = document.getElementById('metadata-container');
 const progressBar = document.getElementById('progress-bar');
 const progressBarContainer = document.getElementById('progress-bar-container');
 
 // State
 let classifier = null;
 let imageUrl = null;
+let imageFile = null;
 
 // --- Model Loading ---
 
@@ -61,6 +64,7 @@ const initializeModel = async () => {
 imageUploadInput.addEventListener('change', (event) => {
     const file = event.target.files[0];
     if (file) {
+        imageFile = file; // Store the file object
         if (imageUrl) {
             URL.revokeObjectURL(imageUrl);
         }
@@ -71,6 +75,7 @@ imageUploadInput.addEventListener('change', (event) => {
         
         detectButton.disabled = false;
         resultsContainer.innerHTML = '';
+        metadataContainer.style.display = 'none'; // Hide metadata on new image
         if (classifier) {
              statusMessage.textContent = 'Ready to detect. Press the button!';
         }
@@ -78,15 +83,25 @@ imageUploadInput.addEventListener('change', (event) => {
 });
 
 detectButton.addEventListener('click', async () => {
-    if (!imageUrl || !classifier) return;
+    if (!imageUrl || !classifier || !imageFile) return;
 
     detectButton.disabled = true;
     statusMessage.textContent = 'Analyzing image...';
     resultsContainer.innerHTML = '';
+    metadataContainer.style.display = 'none';
 
     try {
-        const results = await classifier(imageUrl);
+        // Run classification and metadata extraction in parallel
+        const [results, metadata] = await Promise.all([
+            classifier(imageUrl),
+            ExifReader.load(imageFile).catch(err => {
+                console.warn("Could not read metadata:", err);
+                return null; // Don't block analysis if metadata fails
+            })
+        ]);
+        
         displayResults(results);
+        displayMetadata(metadata);
         statusMessage.textContent = 'Analysis complete. Upload another image?';
     } catch (error) {
         console.error('Error during classification:', error);
@@ -116,6 +131,49 @@ const displayResults = (results) => {
         resultItem.appendChild(score);
         resultsContainer.appendChild(resultItem);
     });
+};
+
+const displayMetadata = (metadata) => {
+    metadataContainer.innerHTML = '';
+
+    if (!metadata || Object.keys(metadata).length === 0) {
+        metadataContainer.style.display = 'none';
+        return;
+    }
+
+    const title = document.createElement('h3');
+    title.textContent = 'Image Metadata';
+    metadataContainer.appendChild(title);
+
+    const table = document.createElement('table');
+    const tbody = document.createElement('tbody');
+
+    for (const key in metadata) {
+        if (Object.prototype.hasOwnProperty.call(metadata, key)) {
+            const value = metadata[key];
+            if (value && typeof value.description !== 'undefined') {
+                const row = document.createElement('tr');
+                const keyCell = document.createElement('td');
+                keyCell.textContent = key;
+                const valueCell = document.createElement('td');
+                valueCell.textContent = value.description;
+                row.appendChild(keyCell);
+                row.appendChild(valueCell);
+                tbody.appendChild(row);
+            }
+        }
+    }
+
+    if (tbody.children.length > 0) {
+        table.appendChild(tbody);
+        metadataContainer.appendChild(table);
+        metadataContainer.style.display = 'block';
+    } else {
+        const noData = document.createElement('p');
+        noData.textContent = 'No readable metadata found in this image.';
+        metadataContainer.appendChild(noData);
+        metadataContainer.style.display = 'block';
+    }
 };
 
 // --- Initialization ---

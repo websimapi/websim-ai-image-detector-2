@@ -153,6 +153,49 @@ main {
     gap: 0.75rem;
 }
 
+#metadata-container {
+    margin-top: 1.5rem;
+    text-align: left;
+    background-color: #f8f9fa;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 1rem;
+    font-size: 0.9rem;
+    display: none; /* Hidden by default */
+}
+
+#metadata-container h3 {
+    margin-top: 0;
+    margin-bottom: 0.75rem;
+    color: var(--text-color);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.5rem;
+}
+
+#metadata-container table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+#metadata-container td {
+    padding: 0.4rem 0;
+    border-bottom: 1px solid #e9ecef;
+    vertical-align: top;
+    word-wrap: break-word;
+}
+
+#metadata-container tr:last-child td {
+    border-bottom: none;
+}
+
+#metadata-container td:first-child {
+    font-weight: 500;
+    color: var(--subtle-text-color);
+    width: 35%;
+    padding-right: 1rem;
+}
+
 .result-item {
     display: flex;
     justify-content: space-between;
