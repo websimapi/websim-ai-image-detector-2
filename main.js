@@ -71,10 +71,11 @@ imageUploadInput.addEventListener('change', (event) => {
         imageUrl = URL.createObjectURL(file);
         imagePreview.src = imageUrl;
         imagePreview.style.display = 'block';
-        imagePreview.classList.add('has-image');
+        uploadPlaceholder.style.display = 'none'; // Explicitly hide placeholder
         
         detectButton.disabled = false;
         resultsContainer.innerHTML = '';
+        metadataContainer.innerHTML = ''; // Clear old metadata
         metadataContainer.style.display = 'none'; // Hide metadata on new image
         if (classifier) {
              statusMessage.textContent = 'Ready to detect. Press the button!';
