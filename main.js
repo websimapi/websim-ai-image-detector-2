@@ -1,5 +1,3 @@
-import { pipeline } from '@xenova/transformers';
-
 // DOM Elements
 const imageUploadInput = document.getElementById('image-upload-input');
 const imagePreview = document.getElementById('image-preview');
@@ -10,71 +8,142 @@ const progressBar = document.getElementById('progress-bar');
 const progressBarContainer = document.getElementById('progress-bar-container');
 
 // State
-let classifier = null;
+let session = null;
+let imageFile = null;
 let imageUrl = null;
 
-// Zero-shot classification labels for AI detection
-const candidateLabels = [
-    'AI generated image',
-    'artificial intelligence created image',
-    'computer generated image',
-    'synthetic image',
-    'real photograph',
-    'authentic photograph',
-    'natural photograph',
-    'camera captured image'
+// AI Detection Keywords for metadata
+const AI_INDICATORS = [
+    'midjourney', 'dall-e', 'dalle', 'stable diffusion', 'firefly',
+    'openai', 'generative', 'ai generated', 'synthetic', 'artifical intelligence'
 ];
 
-// Model Loading
-class AIDetectorPipeline {
-    static task = 'zero-shot-image-classification';
-    static model = 'Xenova/clip-vit-base-patch32';
-    static instance = null;
+// ONNX Model Loading
+const MODEL_URL = 'https://huggingface.co/Organika/sdxl-detector/resolve/main/onnx/model.onnx';
 
-    static async getInstance(progress_callback = null) {
-        if (this.instance === null) {
-            this.instance = pipeline(this.task, this.model, { progress_callback });
-        }
-        return this.instance;
-    }
-}
-
-const updateLoadingStatus = (data) => {
-    if (data.status === 'progress') {
-        const percentage = (data.progress * 100).toFixed(2);
-        progressBar.style.width = `${percentage}%`;
-        statusMessage.textContent = `Loading ${data.file}... ${percentage}%`;
-    } else if (data.status === 'done') {
+const loadModel = async () => {
+    statusMessage.textContent = 'Loading AI detection model... (downloading ~354 MB, may take 2-3 minutes)';
+    progressBarContainer.style.display = 'block';
+    
+    try {
+        // Load ONNX Runtime
+        const ort = window.ort;
+        
+        // Create session with progress tracking
+        progressBar.style.width = '10%';
+        statusMessage.textContent = 'Downloading model from HuggingFace...';
+        
+        session = await ort.InferenceSession.create(MODEL_URL, {
+            executionProviders: ['wasm'],
+        });
+        
         progressBar.style.width = '100%';
-        statusMessage.textContent = 'Model loaded successfully! Ready to detect AI images.';
+        statusMessage.textContent = 'Model loaded successfully!';
+        
         setTimeout(() => {
             progressBarContainer.style.display = 'none';
-            if(imageUrl) {
-                statusMessage.textContent = 'Image ready. Click "Analyze Image" to begin!';
-            } else {
-                statusMessage.textContent = 'Please upload an image to begin.';
-            }
+            statusMessage.textContent = 'Please upload an image to begin.';
         }, 1000);
-    } else {
-        statusMessage.textContent = `Loading model: ${data.status}...`;
+        
+    } catch (error) {
+        console.error('Error loading model:', error);
+        statusMessage.textContent = 'Error loading model. Please refresh and try again.';
     }
 };
 
+// Extract and analyze image metadata
+const analyzeMetadata = async (file) => {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                EXIF.getData(img, function() {
+                    const allTags = EXIF.getAllTags(this);
+                    const findings = {
+                        software: null,
+                        creator: null,
+                        copyright: null,
+                        aiIndicators: [],
+                        hasC2PA: false,
+                        creationDate: null,
+                        allMetadata: allTags
+                    };
+                    
+                    // Check common EXIF fields
+                    if (allTags.Software) findings.software = allTags.Software;
+                    if (allTags.Artist) findings.creator = allTags.Artist;
+                    if (allTags.Copyright) findings.copyright = allTags.Copyright;
+                    if (allTags.DateTime) findings.creationDate = allTags.DateTime;
+                    
+                    // Check for AI indicators in metadata
+                    const metadataString = JSON.stringify(allTags).toLowerCase();
+                    AI_INDICATORS.forEach(indicator => {
+                        if (metadataString.includes(indicator)) {
+                            findings.aiIndicators.push(indicator);
+                        }
+                    });
+                    
+                    // Check for C2PA/Content Credentials
+                    if (allTags['C2PA'] || metadataString.includes('c2pa') || 
+                        metadataString.includes('content credentials')) {
+                        findings.hasC2PA = true;
+                    }
+                    
+                    resolve(findings);
+                });
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+};
+
+// Preprocess image for Swin Transformer model (384x384, normalized)
+const preprocessImage = async (imageUrl) => {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 384;
+            canvas.height = 384;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, 384, 384);
+            
+            const imageData = ctx.getImageData(0, 0, 384, 384);
+            const pixels = imageData.data;
+            
+            // Prepare tensor data [1, 3, 384, 384]
+            const float32Data = new Float32Array(3 * 384 * 384);
+            
+            // ImageNet normalization values
+            const mean = [0.485, 0.456, 0.406];
+            const std = [0.229, 0.224, 0.225];
+            
+            for (let i = 0; i < 384 * 384; i++) {
+                // RGB channels
+                float32Data[i] = (pixels[i * 4] / 255 - mean[0]) / std[0];     // R
+                float32Data[384 * 384 + i] = (pixels[i * 4 + 1] / 255 - mean[1]) / std[1]; // G
+                float32Data[384 * 384 * 2 + i] = (pixels[i * 4 + 2] / 255 - mean[2]) / std[2]; // B
+            }
+            
+            resolve(float32Data);
+        };
+        img.onerror = reject;
+        img.src = imageUrl;
+    });
+};
+
 const initializeModel = async () => {
-    statusMessage.textContent = 'Loading AI detection model... (first load may take 30-60s)';
-    progressBarContainer.style.display = 'block';
-    try {
-        classifier = await AIDetectorPipeline.getInstance(updateLoadingStatus);
-    } catch (error) {
-        console.error('Error loading model:', error);
-        statusMessage.textContent = 'Error loading model. Please refresh the page.';
-    }
+    await loadModel();
 };
 
 // Image Upload Handler
 imageUploadInput.addEventListener('change', (event) => {
     const file = event.target.files[0];
     if (file) {
+        imageFile = file; // Store the file for metadata extraction
         if (imageUrl) {
             URL.revokeObjectURL(imageUrl);
         }
@@ -85,7 +154,7 @@ imageUploadInput.addEventListener('change', (event) => {
         
         detectButton.disabled = false;
         resultsContainer.innerHTML = '';
-        if (classifier) {
+        if (session) {
             statusMessage.textContent = 'Image ready. Click "Analyze Image" to begin!';
         }
     }
@@ -93,119 +162,187 @@ imageUploadInput.addEventListener('change', (event) => {
 
 // Detection Handler
 detectButton.addEventListener('click', async () => {
-    if (!imageUrl || !classifier) return;
+    if (!imageUrl || !session || !imageFile) return;
 
     detectButton.disabled = true;
-    statusMessage.textContent = 'Analyzing image for AI artifacts...';
+    statusMessage.textContent = 'Step 1/2: Analyzing metadata...';
     resultsContainer.innerHTML = '';
 
     try {
-        const results = await classifier(imageUrl, candidateLabels);
-        displayResults(results);
+        // Step 1: Analyze metadata
+        const metadata = await analyzeMetadata(imageFile);
+        
+        // Step 2: ML-based detection
+        statusMessage.textContent = 'Step 2/2: Running AI detection model...';
+        const preprocessed = await preprocessImage(imageUrl);
+        
+        const tensor = new window.ort.Tensor('float32', preprocessed, [1, 3, 384, 384]);
+        const feeds = { pixel_values: tensor };
+        
+        const results = await session.run(feeds);
+        const logits = results.logits.data;
+        
+        // Softmax to get probabilities
+        const exp = logits.map(x => Math.exp(x));
+        const sumExp = exp.reduce((a, b) => a + b, 0);
+        const probabilities = exp.map(x => x / sumExp);
+        
+        // Classes: 0 = artificial, 1 = real
+        const artificialScore = probabilities[0];
+        const realScore = probabilities[1];
+        
+        displayResults(metadata, artificialScore, realScore);
         statusMessage.textContent = 'Analysis complete! Upload another image to test.';
     } catch (error) {
-        console.error('Error during classification:', error);
+        console.error('Error during analysis:', error);
         statusMessage.textContent = 'Error analyzing image. Please try another image.';
-        resultsContainer.innerHTML = '<p style="color: #dc3545; text-align: center;">Analysis failed. Please try a different image.</p>';
+        resultsContainer.innerHTML = '<p style="color: #dc3545; text-align: center;">Analysis failed: ' + error.message + '</p>';
     } finally {
         detectButton.disabled = false;
     }
 });
 
-const displayResults = (results) => {
+const displayResults = (metadata, artificialScore, realScore) => {
     resultsContainer.innerHTML = '';
     
-    // Calculate AI vs Real scores
-    let aiScore = 0;
-    let realScore = 0;
+    const artificialPercentage = (artificialScore * 100).toFixed(1);
+    const realPercentage = (realScore * 100).toFixed(1);
     
-    results.forEach(result => {
-        const label = result.label.toLowerCase();
-        if (label.includes('ai') || label.includes('artificial') || label.includes('computer') || label.includes('synthetic')) {
-            aiScore += result.score;
-        } else if (label.includes('real') || label.includes('authentic') || label.includes('natural') || label.includes('camera')) {
-            realScore += result.score;
-        }
-    });
-
-    // Normalize scores
-    const total = aiScore + realScore;
-    const aiPercentage = (aiScore / total) * 100;
-    const realPercentage = (realScore / total) * 100;
-
-    // Display verdict
+    // === METADATA ANALYSIS SECTION ===
+    const metadataSection = document.createElement('div');
+    metadataSection.style.cssText = 'background: #f8f9ff; border-radius: 10px; padding: 20px; margin-bottom: 20px; border-left: 4px solid #667eea;';
+    
+    const metadataTitle = document.createElement('h3');
+    metadataTitle.style.cssText = 'color: #667eea; margin-bottom: 15px; font-size: 1.1rem;';
+    metadataTitle.innerHTML = '🔍 Metadata Analysis';
+    metadataSection.appendChild(metadataTitle);
+    
+    let metadataVerdict = 'No AI indicators found in metadata';
+    let metadataIcon = '✅';
+    let metadataColor = '#51cf66';
+    
+    if (metadata.aiIndicators.length > 0 || metadata.hasC2PA) {
+        metadataVerdict = 'AI indicators detected in metadata!';
+        metadataIcon = '⚠️';
+        metadataColor = '#ff6b6b';
+    }
+    
+    const metadataVerdictDiv = document.createElement('div');
+    metadataVerdictDiv.style.cssText = `background: ${metadataColor}; color: white; padding: 12px; border-radius: 8px; margin-bottom: 15px; font-weight: 600;`;
+    metadataVerdictDiv.textContent = `${metadataIcon} ${metadataVerdict}`;
+    metadataSection.appendChild(metadataVerdictDiv);
+    
+    // Metadata details
+    const detailsList = document.createElement('div');
+    detailsList.style.cssText = 'font-size: 0.9rem; color: #555;';
+    
+    if (metadata.software) {
+        detailsList.innerHTML += `<p><strong>Software:</strong> ${metadata.software}</p>`;
+    }
+    if (metadata.creator) {
+        detailsList.innerHTML += `<p><strong>Creator:</strong> ${metadata.creator}</p>`;
+    }
+    if (metadata.creationDate) {
+        detailsList.innerHTML += `<p><strong>Date:</strong> ${metadata.creationDate}</p>`;
+    }
+    if (metadata.hasC2PA) {
+        detailsList.innerHTML += `<p><strong>C2PA:</strong> Content Credentials detected</p>`;
+    }
+    if (metadata.aiIndicators.length > 0) {
+        detailsList.innerHTML += `<p><strong>AI Keywords Found:</strong> ${metadata.aiIndicators.join(', ')}</p>`;
+    }
+    if (!metadata.software && !metadata.creator && metadata.aiIndicators.length === 0) {
+        detailsList.innerHTML += `<p style="color: #999;">No significant metadata found (may have been stripped)</p>`;
+    }
+    
+    metadataSection.appendChild(detailsList);
+    resultsContainer.appendChild(metadataSection);
+    
+    // === ML MODEL SECTION ===
+    const mlSection = document.createElement('div');
+    mlSection.style.cssText = 'background: #f8f9ff; border-radius: 10px; padding: 20px; margin-bottom: 20px; border-left: 4px solid #764ba2;';
+    
+    const mlTitle = document.createElement('h3');
+    mlTitle.style.cssText = 'color: #764ba2; margin-bottom: 15px; font-size: 1.1rem;';
+    mlTitle.innerHTML = '🤖 ML Model Analysis (Organika/sdxl-detector)';
+    mlSection.appendChild(mlTitle);
+    
+    // ML Verdict
     const verdictDiv = document.createElement('div');
     verdictDiv.className = 'ai-indicator';
     
-    if (aiPercentage > 60) {
+    if (artificialScore > 0.7) {
         verdictDiv.classList.add('likely-ai');
-        verdictDiv.innerHTML = `🤖 Likely AI-Generated (${aiPercentage.toFixed(1)}% confidence)`;
-    } else if (realPercentage > 60) {
+        verdictDiv.innerHTML = `🤖 Likely AI-Generated (${artificialPercentage}% confidence)`;
+    } else if (realScore > 0.7) {
         verdictDiv.classList.add('likely-real');
-        verdictDiv.innerHTML = `📷 Likely Real Photo (${realPercentage.toFixed(1)}% confidence)`;
+        verdictDiv.innerHTML = `📷 Likely Real Photo (${realPercentage}% confidence)`;
     } else {
         verdictDiv.classList.add('uncertain');
-        verdictDiv.innerHTML = `🤔 Uncertain - Scores too close to determine`;
+        verdictDiv.innerHTML = `🤔 Uncertain - Scores: AI ${artificialPercentage}% / Real ${realPercentage}%`;
     }
     
-    resultsContainer.appendChild(verdictDiv);
-
-    // Group and display detailed scores
-    const aiResults = results.filter(r => {
-        const label = r.label.toLowerCase();
-        return label.includes('ai') || label.includes('artificial') || label.includes('computer') || label.includes('synthetic');
-    }).sort((a, b) => b.score - a.score);
-
-    const realResults = results.filter(r => {
-        const label = r.label.toLowerCase();
-        return label.includes('real') || label.includes('authentic') || label.includes('natural') || label.includes('camera');
-    }).sort((a, b) => b.score - a.score);
-
-    // Display top AI indicators
-    if (aiResults.length > 0) {
-        const aiHeader = document.createElement('h3');
-        aiHeader.style.cssText = 'margin-top: 20px; color: #667eea; font-size: 1rem;';
-        aiHeader.textContent = '🤖 AI-Generated Indicators:';
-        resultsContainer.appendChild(aiHeader);
-
-        aiResults.slice(0, 3).forEach(result => {
-            const resultItem = document.createElement('div');
-            resultItem.className = 'result-item';
-            
-            const label = document.createElement('span');
-            label.textContent = result.label;
-            
-            const score = document.createElement('span');
-            score.textContent = `${(result.score * 100).toFixed(2)}%`;
-
-            resultItem.appendChild(label);
-            resultItem.appendChild(score);
-            resultsContainer.appendChild(resultItem);
-        });
+    mlSection.appendChild(verdictDiv);
+    
+    // Confidence bars
+    const confidenceBars = document.createElement('div');
+    confidenceBars.style.cssText = 'margin-top: 15px;';
+    
+    confidenceBars.innerHTML = `
+        <div style="margin-bottom: 10px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                <span style="font-weight: 600;">AI-Generated</span>
+                <span style="font-weight: 700; color: #ff6b6b;">${artificialPercentage}%</span>
+            </div>
+            <div style="background: #e9ecef; border-radius: 10px; height: 10px; overflow: hidden;">
+                <div style="background: linear-gradient(90deg, #ff6b6b, #ee5a6f); width: ${artificialPercentage}%; height: 100%; border-radius: 10px;"></div>
+            </div>
+        </div>
+        <div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                <span style="font-weight: 600;">Real Photo</span>
+                <span style="font-weight: 700; color: #51cf66;">${realPercentage}%</span>
+            </div>
+            <div style="background: #e9ecef; border-radius: 10px; height: 10px; overflow: hidden;">
+                <div style="background: linear-gradient(90deg, #51cf66, #37b24d); width: ${realPercentage}%; height: 100%; border-radius: 10px;"></div>
+            </div>
+        </div>
+    `;
+    
+    mlSection.appendChild(confidenceBars);
+    resultsContainer.appendChild(mlSection);
+    
+    // === FINAL VERDICT ===
+    const finalSection = document.createElement('div');
+    finalSection.style.cssText = 'background: linear-gradient(135deg, #667eea, #764ba2); color: white; border-radius: 10px; padding: 20px; text-align: center;';
+    
+    const finalTitle = document.createElement('h3');
+    finalTitle.style.cssText = 'margin-bottom: 10px; font-size: 1.2rem;';
+    finalTitle.textContent = '📊 Overall Assessment';
+    finalSection.appendChild(finalTitle);
+    
+    let finalVerdict = '';
+    const metadataHasAI = metadata.aiIndicators.length > 0 || metadata.hasC2PA;
+    const mlSaysAI = artificialScore > realScore;
+    
+    if (metadataHasAI && mlSaysAI) {
+        finalVerdict = '⚠️ Strong Evidence: Both metadata and ML analysis indicate AI generation';
+    } else if (metadataHasAI) {
+        finalVerdict = '⚠️ Metadata indicates AI, but ML analysis is inconclusive';
+    } else if (mlSaysAI && artificialScore > 0.8) {
+        finalVerdict = '🤖 ML model strongly suggests AI generation (no metadata available)';
+    } else if (mlSaysAI) {
+        finalVerdict = '🤔 ML model leans toward AI generation, but confidence is moderate';
+    } else {
+        finalVerdict = '✅ Appears to be a real photograph based on available evidence';
     }
-
-    // Display top Real indicators
-    if (realResults.length > 0) {
-        const realHeader = document.createElement('h3');
-        realHeader.style.cssText = 'margin-top: 20px; color: #667eea; font-size: 1rem;';
-        realHeader.textContent = '📷 Real Photo Indicators:';
-        resultsContainer.appendChild(realHeader);
-
-        realResults.slice(0, 3).forEach(result => {
-            const resultItem = document.createElement('div');
-            resultItem.className = 'result-item';
-            
-            const label = document.createElement('span');
-            label.textContent = result.label;
-            
-            const score = document.createElement('span');
-            score.textContent = `${(result.score * 100).toFixed(2)}%`;
-
-            resultItem.appendChild(label);
-            resultItem.appendChild(score);
-            resultsContainer.appendChild(resultItem);
-        });
-    }
+    
+    const finalVerdictP = document.createElement('p');
+    finalVerdictP.style.cssText = 'font-size: 1rem; line-height: 1.6;';
+    finalVerdictP.textContent = finalVerdict;
+    finalSection.appendChild(finalVerdictP);
+    
+    resultsContainer.appendChild(finalSection);
 };
 
 // Initialize on load
