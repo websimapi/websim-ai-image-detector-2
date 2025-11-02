@@ -18,7 +18,7 @@ let imageUrl = null;
 
 class AiImageDetectorPipeline {
     static task = 'image-classification';
-    static model = 'julien-c/ai-generated-image-detector';
+    static model = 'Xenova/vit-base-patch16-224';
     static instance = null;
 
     static async getInstance(progress_callback = null) {
@@ -99,12 +99,12 @@ detectButton.addEventListener('click', async () => {
 const displayResults = (results) => {
     resultsContainer.innerHTML = '';
     
-    // Sort results by score in descending order
-    results.sort((a, b) => b.score - a.score);
+    // Sort results by score and take the top 5
+    const topResults = results.sort((a, b) => b.score - a.score).slice(0, 5);
 
-    results.forEach(result => {
+    topResults.forEach(result => {
         const resultItem = document.createElement('div');
-        resultItem.className = `result-item ${result.label.toLowerCase()}`;
+        resultItem.className = 'result-item';
         
         const label = document.createElement('span');
         label.textContent = result.label;
