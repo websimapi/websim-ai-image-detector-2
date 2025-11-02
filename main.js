@@ -29,8 +29,12 @@ const loadModel = async () => {
         // Load ONNX Runtime
         const ort = window.ort;
 
-        // Set WASM thread count to 1 to reduce memory usage and improve stability
+        // Configure WASM for better cross-browser compatibility
         ort.env.wasm.numThreads = 1;
+        ort.env.wasm.simd = true; // Enable SIMD if available
+        
+        // Set proxy to CDN for better compatibility
+        ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/';
         
         // Create session with progress tracking
         progressBar.style.width = '10%';
@@ -38,6 +42,10 @@ const loadModel = async () => {
         
         session = await ort.InferenceSession.create(MODEL_URL, {
             executionProviders: ['wasm'],
+            graphOptimizationLevel: 'basic',
+            executionMode: 'sequential',
+            enableMemPattern: false,
+            enableCpuMemArena: false
         });
         
         console.log('Model loaded. Input names:', session.inputNames);
@@ -161,6 +169,14 @@ const initializeModel = async () => {
 imageUploadInput.addEventListener('change', (event) => {
     const file = event.target.files[0];
     if (file) {
+        // Add file size warning for large images
+        if (file.size > 10 * 1024 * 1024) { // 10MB limit
+            statusMessage.textContent = 'Warning: Large file (>10MB). Analysis may be slow or fail.';
+            statusMessage.style.color = '#ffc107';
+        } else {
+            statusMessage.style.color = ''; // Reset color
+        }
+
         imageFile = file; // Store the file for metadata extraction
         if (imageUrl) {
             URL.revokeObjectURL(imageUrl);
@@ -187,7 +203,14 @@ detectButton.addEventListener('click', async () => {
     resultsContainer.innerHTML = '';
     console.log("Starting analysis...");
 
+    let tensor;
     try {
+        // Attempt to trigger garbage collection before heavy processing
+        if (window.gc) {
+            window.gc();
+            console.log("Garbage collection triggered.");
+        }
+
         // Step 1: Analyze metadata
         console.log("Analyzing metadata for file:", imageFile.name);
         const metadata = await analyzeMetadata(imageFile);
@@ -200,7 +223,7 @@ detectButton.addEventListener('click', async () => {
         console.log("Image preprocessing complete. Preprocessed data length:", preprocessed.length);
         
         console.log("Creating ONNX tensor...");
-        const tensor = new window.ort.Tensor('float32', preprocessed, [1, 3, 384, 384]);
+        tensor = new window.ort.Tensor('float32', preprocessed, [1, 3, 384, 384]);
         console.log("Tensor created:", tensor);
         
         const feeds = { pixel_values: tensor };
@@ -211,6 +234,9 @@ detectButton.addEventListener('click', async () => {
             results = await session.run(feeds);
         } catch (inferenceError) {
             console.error("Error during session.run():", inferenceError);
+            if (inferenceError.message.includes('726881928')) { // Specific memory error code
+                 throw new Error("Out of memory during model inference. Please try a smaller image or a device with more RAM.");
+            }
             throw new Error("Model inference failed. The model may be incompatible with your browser's environment.");
         }
 
@@ -245,6 +271,11 @@ detectButton.addEventListener('click', async () => {
         const errorMessage = error instanceof Error ? error.message : String(error);
         resultsContainer.innerHTML = '<p style="color: #dc3545; text-align: center;">Analysis failed: ' + errorMessage + '</p>';
     } finally {
+        // Dispose of the tensor to free up memory
+        if (tensor) {
+            tensor.dispose();
+            console.log("Tensor disposed.");
+        }
         detectButton.disabled = false;
     }
 });
