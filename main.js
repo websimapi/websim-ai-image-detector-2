@@ -28,6 +28,9 @@ const loadModel = async () => {
     try {
         // Load ONNX Runtime
         const ort = window.ort;
+
+        // Set WASM thread count to 1 to reduce memory usage and improve stability
+        ort.env.wasm.numThreads = 1;
         
         // Create session with progress tracking
         progressBar.style.width = '10%';
@@ -199,7 +202,15 @@ detectButton.addEventListener('click', async () => {
         
         const feeds = { pixel_values: tensor };
         console.log("Running model inference with feeds:", feeds);
-        const results = await session.run(feeds);
+        
+        let results;
+        try {
+            results = await session.run(feeds);
+        } catch (inferenceError) {
+            console.error("Error during session.run():", inferenceError);
+            throw new Error("Model inference failed. The model may be incompatible with your browser's environment.");
+        }
+
         console.log("Model inference complete. Results:", results);
         
         const logits = results.logits.data;
